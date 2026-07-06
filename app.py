@@ -52,6 +52,7 @@ from db.database import (
     save_call_results, get_all_calls, get_call_by_id,
     get_segments_for_call, get_flags_for_call, get_summary_for_call,
     delete_call,
+    save_voice_profile, get_all_voice_profiles, delete_voice_profile,
 )
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -143,12 +144,19 @@ def render_transcript(enriched_segments: list[dict]):
 
     for seg in enriched_segments:
         ts    = f"{fmt_time(seg['start'])} – {fmt_time(seg['end'])}"
-        label = f"{seg['speaker']}  ·  {ts}"
+        spk   = seg['speaker']
+        conf  = seg.get('speaker_confidence', 0.0)
+        orig  = seg.get('speaker_original', '')
+
+        # Build speaker label — show confidence if a real name was matched
+        if orig and spk != "Unknown Speaker" and conf > 0:
+            spk_label = f"{spk} ({conf:.0%} match)"
+        else:
+            spk_label = spk
 
         if seg.get("flag"):
-            # Red highlighted block with expander for details
             with st.expander(
-                f"⚠️ {seg['speaker']}  [{ts}]  — {seg['text'][:80]}{'...' if len(seg['text'])>80 else ''}",
+                f"⚠️ {spk_label}  [{ts}]  — {seg['text'][:80]}{'...' if len(seg['text'])>80 else ''}",
                 expanded=False,
             ):
                 st.markdown(
@@ -162,10 +170,9 @@ def render_transcript(enriched_segments: list[dict]):
                     for ctx in seg["context_window"]:
                         st.markdown(f"> *{ctx['speaker']}:* {ctx['text']}")
         else:
-            # Plain grey block
             st.markdown(
                 f'<div class="safe-segment">'
-                f'<span class="speaker-label">{seg["speaker"]}</span> '
+                f'<span class="speaker-label">{spk_label}</span> '
                 f'<span class="timestamp-label">[{ts}]</span><br/>'
                 f'{seg["text"]}'
                 f'</div>',
@@ -303,6 +310,19 @@ def page_analyze():
             segments = transcribe_with_diarization(wav_path)
         else:
             segments = transcribe_plain(wav_path)
+
+        # Step 2b: Speaker recognition — match diarized speakers to enrolled names
+        update_status("🔎 Identifying speakers by voice...", 60)
+        try:
+            from pipeline.voice_recognition import identify_speakers, apply_speaker_names
+            name_map = identify_speakers(segments, wav_path)
+            if name_map:
+                segments = apply_speaker_names(segments, name_map)
+                matched = {v[0] for v in name_map.values() if v[0] != "Unknown Speaker"}
+                if matched:
+                    st.info(f"🎙️ Recognized speakers: {', '.join(matched)}")
+        except Exception as exc:
+            st.warning(f"Speaker recognition skipped: {exc}")
 
         update_status("🔍 Analyzing transcript for threats...", 70)
         with get_session() as session:
@@ -476,6 +496,115 @@ def page_past_calls():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# TAB 3 — Enroll a Voice
+# ═════════════════════════════════════════════════════════════════════════════
+
+def page_enroll_voice():
+    st.title("🎤 Enroll a Voice")
+    st.markdown(
+        "Upload a short, clean audio sample (10–30 seconds) of one person speaking. "
+        "CallGuard will generate a voice fingerprint and recognize that person in future calls."
+    )
+
+    name = st.text_input("Person's name", placeholder="e.g. John Smith")
+
+    uploaded = st.file_uploader(
+        "Upload voice sample (.wav, .mp3, .m4a)",
+        type=["wav", "mp3", "m4a", "flac", "ogg"],
+    )
+
+    if uploaded:
+        st.audio(uploaded)
+
+    if not st.button("🔐 Enroll Voice", type="primary"):
+        return
+
+    if not name.strip():
+        st.error("Please enter a name before enrolling.")
+        return
+    if not uploaded:
+        st.error("Please upload an audio sample.")
+        return
+
+    # Save uploaded file to temp
+    tmp_dir  = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / uploaded.name
+    with open(tmp_path, "wb") as f:
+        f.write(uploaded.getbuffer())
+
+    with st.spinner(f"Generating voice embedding for '{name.strip()}'..."):
+        try:
+            from pipeline.voice_recognition import generate_embedding
+            from pipeline.preprocess_audio import convert_to_wav
+
+            wav_path  = convert_to_wav(str(tmp_path))
+            embedding = generate_embedding(wav_path)
+
+            with get_session() as session:
+                save_voice_profile(
+                    session,
+                    name       = name.strip(),
+                    embedding  = embedding,
+                    audio_file = uploaded.name,
+                )
+
+            st.success(f"✅ '{name.strip()}' enrolled successfully! They will now be recognized in future calls.")
+
+        except Exception as exc:
+            st.error(f"Enrollment failed: {exc}")
+        finally:
+            try:
+                tmp_path.unlink()
+                if 'wav_path' in locals() and wav_path != str(tmp_path):
+                    os.unlink(wav_path)
+            except Exception:
+                pass
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 4 — Manage Enrolled Voices
+# ═════════════════════════════════════════════════════════════════════════════
+
+def page_manage_voices():
+    st.title("👥 Manage Enrolled Voices")
+    st.markdown("View and delete enrolled voice profiles.")
+
+    with get_session() as session:
+        profiles = get_all_voice_profiles(session)
+
+        if not profiles:
+            st.info("No voices enrolled yet. Go to **Enroll a Voice** to add someone.")
+            return
+
+        # Summary count
+        st.metric("Total enrolled voices", len(profiles))
+        st.divider()
+
+        for profile in profiles:
+            col1, col2, col3 = st.columns([3, 2, 1])
+            col1.markdown(f"**{profile.name}**")
+            col2.markdown(
+                f"<span style='color:#888;font-size:0.85em'>"
+                f"Added {profile.date_added.strftime('%Y-%m-%d %H:%M')}"
+                f"{'  ·  Sample: ' + profile.audio_file if profile.audio_file else ''}"
+                f"</span>",
+                unsafe_allow_html=True,
+            )
+            profile_id = profile.id
+            if col3.button("🗑️ Delete", key=f"del_profile_{profile_id}"):
+                with get_session() as del_session:
+                    delete_voice_profile(del_session, profile_id)
+                st.success(f"Deleted '{profile.name}'.")
+                st.rerun()
+
+        st.divider()
+        st.markdown(
+            f"**Recognition threshold:** `{os.getenv('RECOGNITION_THRESHOLD', '0.75')}` "
+            f"— set `RECOGNITION_THRESHOLD` in `.env` to adjust (0.0–1.0, higher = stricter)"
+        )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Main layout — sidebar navigation
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -490,7 +619,7 @@ def main():
 
     page = st.sidebar.radio(
         "Navigation",
-        ["🎙️ Analyze Call", "📂 Past Calls"],
+        ["🎙️ Analyze Call", "📂 Past Calls", "🎤 Enroll a Voice", "👥 Manage Voices"],
         label_visibility="collapsed",
     )
 
@@ -501,11 +630,17 @@ def main():
     hf = os.getenv("HF_TOKEN", "")
     st.sidebar.markdown(f"HF Token: {'✅ set' if hf else '❌ not set'}")
     st.sidebar.markdown(f"Fuzzy threshold: `{os.getenv('FUZZY_THRESHOLD', '80')}`")
+    st.sidebar.markdown(f"Voice match threshold: `{os.getenv('RECOGNITION_THRESHOLD', '0.75')}`")
 
     if page == "🎙️ Analyze Call":
         page_analyze()
-    else:
+    elif page == "📂 Past Calls":
         page_past_calls()
+    elif page == "🎤 Enroll a Voice":
+        page_enroll_voice()
+    elif page == "👥 Manage Voices":
+        page_manage_voices()
+
 
 
 if __name__ == "__main__":

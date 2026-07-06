@@ -26,6 +26,24 @@ class Base(DeclarativeBase):
     pass
 
 
+class VoiceProfile(Base):
+    """
+    Stores a named person's voice embedding for cross-call speaker recognition.
+
+    embedding is stored as a JSON array of floats (256-dim resemblyzer vector).
+    """
+    __tablename__ = "voice_profiles"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    name       = Column(String(256), nullable=False, unique=True)
+    embedding  = Column(JSON, nullable=False)   # list of 256 floats
+    audio_file = Column(String(512), nullable=True)  # original sample filename
+    date_added = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<VoiceProfile id={self.id} name='{self.name}'>"
+
+
 class Call(Base):
     """
     Represents a processed audio call.

@@ -22,7 +22,8 @@ numpy>=1.24.0
 pandas>=2.0.0
 pyyaml>=6.0.0
 
-# ── ML / Speech (installed last — large packages) ────────────────────────────
+# Voice recognition / speaker embeddings
+resemblyzer>=0.1.1.dev0
 torch==2.1.0
 torchaudio==2.1.0
 openai-whisper==20231117

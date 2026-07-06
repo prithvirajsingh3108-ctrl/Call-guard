@@ -23,7 +23,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
-from db.models import Base, Call, Segment, Flag, CallSummary
+from db.models import Base, Call, Segment, Flag, CallSummary, VoiceProfile
 
 load_dotenv()
 
@@ -210,6 +210,44 @@ def delete_call(session: Session, call_id: int) -> bool:
     if call is None:
         return False
     session.delete(call)
+    return True
+
+
+# ── Voice profile helpers ─────────────────────────────────────────────────────
+
+def save_voice_profile(session: Session, name: str, embedding: list[float], audio_file: str = None) -> VoiceProfile:
+    """Insert or replace a voice profile for a named person."""
+    # Remove existing profile with same name if present
+    existing = session.execute(
+        select(VoiceProfile).where(VoiceProfile.name == name)
+    ).scalar_one_or_none()
+    if existing:
+        session.delete(existing)
+        session.flush()
+
+    profile = VoiceProfile(
+        name       = name,
+        embedding  = embedding,
+        audio_file = audio_file,
+    )
+    session.add(profile)
+    session.flush()
+    return profile
+
+
+def get_all_voice_profiles(session: Session) -> list[VoiceProfile]:
+    """Return all enrolled voice profiles."""
+    return session.execute(
+        select(VoiceProfile).order_by(VoiceProfile.date_added.desc())
+    ).scalars().all()
+
+
+def delete_voice_profile(session: Session, profile_id: int) -> bool:
+    """Delete a voice profile by id. Returns True if deleted."""
+    profile = session.get(VoiceProfile, profile_id)
+    if profile is None:
+        return False
+    session.delete(profile)
     return True
 
 
