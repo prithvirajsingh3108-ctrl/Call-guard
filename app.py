@@ -346,18 +346,9 @@ def page_analyze():
             result   = wx_model.transcribe(audio, batch_size=16)
             detected_language = result.get("language", "en")
 
-            # Align
-            try:
-                align_model, align_meta = whisperx.load_align_model(
-                    language_code=detected_language, device=os.getenv("COMPUTE_DEVICE","cpu")
-                )
-                result = whisperx.align(
-                    result["segments"], align_model, align_meta,
-                    audio, os.getenv("COMPUTE_DEVICE","cpu"),
-                    return_char_alignments=False,
-                )
-            except Exception as exc:
-                print(f"[app] Alignment skipped: {exc}")
+            # NOTE: Alignment step intentionally skipped —
+            # it downloads a 3-4GB language model per language and is not
+            # needed for threat detection (we only need segment text, not word timestamps)
 
             # Diarize
             try:

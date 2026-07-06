@@ -152,25 +152,10 @@ def transcribe_with_diarization(audio_path: str) -> list[dict]:
     detected_language = result.get("language", "en")
     print(f"[transcribe] Detected language: {detected_language}")
 
-    # ── Step 2b: Align word timestamps (cache align model per language) ───────
-    print("[transcribe] Aligning word timestamps...")
-    try:
-        if detected_language not in _align_models:
-            _align_models[detected_language] = whisperx.load_align_model(
-                language_code=detected_language,
-                device=COMPUTE_DEVICE,
-            )
-        align_model, align_metadata = _align_models[detected_language]
-        result = whisperx.align(
-            result["segments"],
-            align_model,
-            align_metadata,
-            audio,
-            COMPUTE_DEVICE,
-            return_char_alignments=False,
-        )
-    except Exception as exc:
-        print(f"[transcribe] Warning: alignment failed ({exc}), continuing without it.")
+    # ── Step 2b: Align word timestamps — SKIPPED ─────────────────────────────
+    # Alignment downloads a 3-4GB language-specific model and is not needed
+    # for threat detection (we only use segment-level text, not word timestamps).
+    print("[transcribe] Skipping alignment (not needed for threat detection)")
 
     # ── Step 2c: Diarize speakers (cache diarization model) ───────────────────
     print("[transcribe] Running speaker diarization...")
