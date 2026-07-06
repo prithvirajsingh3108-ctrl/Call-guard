@@ -138,59 +138,77 @@ def enroll_voice(audio_path: str, name: str) -> list[float]:
 def identify_speakers(
     segments: list[dict],
     wav_path: str,
-) -> dict[str, tuple[str, float]]:
+) -> dict[str, tuple[str, float, str]]:
     """
     Identify who each diarized speaker is by comparing their voice
-    against all enrolled profiles.
+    against all enrolled profiles in the database.
+
+    Handles all edge cases:
+    - No enrolled profiles → returns mapping with status "no_enrolled_voices"
+    - Speaker label is UNKNOWN (diarization off) → still attempts matching
+    - Audio slice too short → skips that speaker gracefully
 
     Args:
         segments: List of segment dicts with 'speaker', 'start', 'end' keys.
         wav_path: Path to the 16kHz mono WAV of the full call.
 
     Returns:
-        Dict mapping speaker label → (matched_name, confidence):
+        Dict mapping speaker label → (matched_name, confidence, status):
             {
-              "SPEAKER_00": ("John Smith", 0.91),
-              "SPEAKER_01": ("Unknown Speaker", 0.0),
+              "SPEAKER_00": ("John Smith", 0.91, "matched"),
+              "SPEAKER_01": ("Unknown Speaker", 0.43, "no_match"),
+              "UNKNOWN":    ("Unknown Speaker", 0.0,  "no_enrolled_voices"),
             }
-        If no profiles are enrolled, returns empty dict.
     """
     from db.database import get_session, get_all_voice_profiles
+    from collections import defaultdict
 
-    # Load enrolled profiles
+    THRESHOLD = float(os.getenv("RECOGNITION_THRESHOLD", "0.75"))
+
+    # ── Load enrolled profiles ────────────────────────────────────────────────
     with get_session() as session:
         profiles = get_all_voice_profiles(session)
         if not profiles:
-            print("[voice_recognition] No enrolled voice profiles — skipping recognition.")
-            return {}
-        # Pull data out before session closes
+            print("[voice_recognition] No enrolled voice profiles in database.")
+            # Return a mapping for every unique speaker label — all no_enrolled_voices
+            unique_speakers = {seg.get("speaker", "UNKNOWN") for seg in segments}
+            return {
+                spk: ("Unknown Speaker (no enrolled voices yet)", 0.0, "no_enrolled_voices")
+                for spk in unique_speakers
+            }
         profile_data = [(p.name, p.embedding) for p in profiles]
+        print(f"[voice_recognition] Loaded {len(profile_data)} enrolled profile(s): "
+              f"{[p[0] for p in profile_data]}")
 
-    # Group segments by speaker label
-    from collections import defaultdict
+    # ── Group segments by speaker label ──────────────────────────────────────
     speaker_segments: dict[str, list[dict]] = defaultdict(list)
     for seg in segments:
-        spk = seg.get("speaker", "UNKNOWN")
-        if spk and spk != "UNKNOWN":
-            speaker_segments[spk].append(seg)
+        spk = seg.get("speaker", "UNKNOWN") or "UNKNOWN"
+        speaker_segments[spk].append(seg)
 
     if not speaker_segments:
-        print("[voice_recognition] No diarized speakers found — skipping recognition.")
+        print("[voice_recognition] No segments found.")
         return {}
 
-    # Load full call audio
+    # ── Load full call WAV ────────────────────────────────────────────────────
     try:
         wav_full = _load_wav_resemblyzer(wav_path)
     except Exception as exc:
-        print(f"[voice_recognition] Could not load audio for recognition: {exc}")
-        return {}
+        print(f"[voice_recognition] Could not load audio: {exc}")
+        return {
+            spk: ("Unknown Speaker", 0.0, "no_match")
+            for spk in speaker_segments
+        }
 
-    encoder = _get_encoder()
-    sample_rate = 16000  # resemblyzer always works at 16kHz
+    encoder     = _get_encoder()
+    sample_rate = 16000
+    name_map: dict[str, tuple[str, float, str]] = {}
 
-    name_map: dict[str, tuple[str, float]] = {}
-
+    # ── For each unique speaker, extract embedding and compare ────────────────
     for speaker_label, spk_segs in speaker_segments.items():
+        print(f"\n[voice_recognition] Processing speaker: '{speaker_label}' "
+              f"({len(spk_segs)} segment(s))")
+
         # Collect audio slices for this speaker
         slices = []
         for seg in spk_segs:
@@ -200,63 +218,84 @@ def identify_speakers(
                 slices.append(wav_full[start_sample:end_sample])
 
         if not slices:
-            name_map[speaker_label] = ("Unknown Speaker", 0.0)
+            print(f"[voice_recognition]   No valid audio slices — marking as Unknown Speaker")
+            name_map[speaker_label] = ("Unknown Speaker", 0.0, "no_match")
             continue
 
-        # Concatenate all slices for this speaker and embed
+        # Concatenate all slices and embed
         combined = np.concatenate(slices)
+        print(f"[voice_recognition]   Combined audio: {len(combined)/sample_rate:.1f}s")
+
         try:
             spk_embedding = encoder.embed_utterance(combined).tolist()
         except Exception as exc:
-            print(f"[voice_recognition] Embedding failed for {speaker_label}: {exc}")
-            name_map[speaker_label] = ("Unknown Speaker", 0.0)
+            print(f"[voice_recognition]   Embedding failed: {exc}")
+            name_map[speaker_label] = ("Unknown Speaker", 0.0, "no_match")
             continue
 
-        # Compare against all enrolled profiles
+        # ── Compare against every enrolled profile — debug print each score ──
         best_name  = "Unknown Speaker"
         best_score = 0.0
-
+        print(f"[voice_recognition]   Similarity scores against enrolled profiles:")
         for profile_name, profile_embedding in profile_data:
             score = cosine_similarity(spk_embedding, profile_embedding)
+            threshold_marker = "✅ MATCH" if score >= THRESHOLD else "❌ below threshold"
+            print(f"[voice_recognition]     vs '{profile_name}': {score:.4f} — {threshold_marker} (threshold={THRESHOLD})")
             if score > best_score:
                 best_score = score
                 best_name  = profile_name
 
-        if best_score >= RECOGNITION_THRESHOLD:
-            name_map[speaker_label] = (best_name, round(best_score, 3))
-            print(f"[voice_recognition] {speaker_label} → '{best_name}' (score={best_score:.3f})")
+        if best_score >= THRESHOLD:
+            name_map[speaker_label] = (best_name, round(best_score, 3), "matched")
+            print(f"[voice_recognition]   → MATCHED: '{best_name}' ({best_score:.3f})")
         else:
-            name_map[speaker_label] = ("Unknown Speaker", round(best_score, 3))
-            print(f"[voice_recognition] {speaker_label} → no match (best={best_score:.3f})")
+            name_map[speaker_label] = ("Unknown Speaker", round(best_score, 3), "no_match")
+            print(f"[voice_recognition]   → NO MATCH (best score {best_score:.3f} < {THRESHOLD})")
 
     return name_map
 
 
 def apply_speaker_names(
     segments: list[dict],
-    name_map: dict[str, tuple[str, float]],
+    name_map: dict[str, tuple[str, float, str]],
 ) -> list[dict]:
     """
-    Replace generic speaker labels in segments with matched names.
+    Enrich each segment with voice match results.
 
-    Args:
-        segments: Original segments with 'speaker' field.
-        name_map: Output of identify_speakers().
+    Adds to each segment dict:
+        matched_name:       resolved display name
+        match_confidence:   similarity score 0.0–1.0
+        match_status:       "matched" | "no_match" | "no_enrolled_voices" | "not_run"
+        speaker_original:   original diarized label (e.g. "SPEAKER_00")
+        speaker_display:    formatted label for UI (e.g. "John Smith (91% match)")
 
-    Returns:
-        New list of segments with 'speaker' replaced by matched name,
-        and 'speaker_confidence' added where a match was found.
+    The 'speaker' field is kept as the original diarized label for DB storage.
+    Use 'speaker_display' for showing in the UI.
     """
     updated = []
     for seg in segments:
-        seg = dict(seg)  # don't mutate originals
-        label = seg.get("speaker", "UNKNOWN")
-        if label in name_map:
-            matched_name, confidence = name_map[label]
-            seg["speaker"]            = matched_name
-            seg["speaker_original"]   = label          # keep original label too
-            seg["speaker_confidence"] = confidence
+        seg = dict(seg)
+        original_label = seg.get("speaker", "UNKNOWN") or "UNKNOWN"
+
+        if original_label in name_map:
+            matched_name, confidence, status = name_map[original_label]
         else:
-            seg["speaker_confidence"] = 0.0
+            matched_name, confidence, status = "Unknown Speaker", 0.0, "not_run"
+
+        seg["speaker_original"] = original_label
+        seg["matched_name"]     = matched_name
+        seg["match_confidence"] = confidence
+        seg["match_status"]     = status
+
+        # Build display label for UI
+        if status == "matched":
+            seg["speaker_display"] = f"{matched_name} ({confidence:.0%} match)"
+        elif status == "no_enrolled_voices":
+            seg["speaker_display"] = "Unknown Speaker (no enrolled voices yet)"
+        elif status == "no_match":
+            seg["speaker_display"] = f"Unknown Speaker (no match, best: {confidence:.0%})"
+        else:
+            seg["speaker_display"] = original_label
+
         updated.append(seg)
     return updated

@@ -78,24 +78,30 @@ class Segment(Base):
     """
     One speaker turn from the transcript.
 
-    Stores the raw text plus detection results for this segment.
+    Stores the raw text plus detection results and voice match results.
+    matched_name:       Person's name if voice matched, else "Unknown Speaker"
+    match_confidence:   Cosine similarity score (0.0–1.0), 0.0 if no match
+    match_status:       "matched" | "no_match" | "no_enrolled_voices" | "not_run"
     """
     __tablename__ = "segments"
 
-    id           = Column(Integer, primary_key=True, autoincrement=True)
-    call_id      = Column(Integer, ForeignKey("calls.id"), nullable=False)
-    speaker      = Column(String(64), nullable=False)   # e.g. "SPEAKER_00"
-    text         = Column(Text, nullable=False)
-    start_sec    = Column(Float, nullable=False)
-    end_sec      = Column(Float, nullable=False)
-    is_flagged   = Column(Boolean, default=False, nullable=False)
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    call_id          = Column(Integer, ForeignKey("calls.id"), nullable=False)
+    speaker          = Column(String(64), nullable=False)   # original diarized label e.g. "SPEAKER_00"
+    text             = Column(Text, nullable=False)
+    start_sec        = Column(Float, nullable=False)
+    end_sec          = Column(Float, nullable=False)
+    is_flagged       = Column(Boolean, default=False, nullable=False)
+    matched_name     = Column(String(256), nullable=True)   # resolved name or "Unknown Speaker"
+    match_confidence = Column(Float, nullable=True)         # 0.0 – 1.0
+    match_status     = Column(String(32), nullable=True)    # matched/no_match/no_enrolled_voices/not_run
 
     call  = relationship("Call", back_populates="segments")
     flags = relationship("Flag", back_populates="segment", cascade="all, delete-orphan")
 
     def __repr__(self):
         snippet = self.text[:40] + "..." if len(self.text) > 40 else self.text
-        return f"<Segment id={self.id} speaker='{self.speaker}' flagged={self.is_flagged} '{snippet}'>"
+        return f"<Segment id={self.id} speaker='{self.speaker}' matched='{self.matched_name}' flagged={self.is_flagged} '{snippet}'>"
 
 
 class Flag(Base):

@@ -117,12 +117,15 @@ def save_call_results(
     # Insert each segment
     for seg_data in enriched_segments:
         segment = Segment(
-            call_id    = call_id,
-            speaker    = seg_data["speaker"],
-            text       = seg_data["text"],
-            start_sec  = seg_data["start"],
-            end_sec    = seg_data["end"],
-            is_flagged = seg_data.get("flag", False),
+            call_id          = call_id,
+            speaker          = seg_data.get("speaker_original", seg_data["speaker"]),
+            text             = seg_data["text"],
+            start_sec        = seg_data["start"],
+            end_sec          = seg_data["end"],
+            is_flagged       = seg_data.get("flag", False),
+            matched_name     = seg_data.get("matched_name"),
+            match_confidence = seg_data.get("match_confidence"),
+            match_status     = seg_data.get("match_status", "not_run"),
         )
         session.add(segment)
         session.flush()   # get segment.id

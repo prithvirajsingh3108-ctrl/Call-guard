@@ -173,36 +173,32 @@ def render_transcript(enriched_segments: list[dict]):
     st.subheader("📝 Transcript")
 
     for seg in enriched_segments:
-        ts    = f"{fmt_time(seg['start'])} – {fmt_time(seg['end'])}"
-        spk   = seg['speaker']
-        conf  = seg.get('speaker_confidence', 0.0)
-        orig  = seg.get('speaker_original', '')
-
-        # Build speaker label — show confidence if a real name was matched
-        if orig and spk != "Unknown Speaker" and conf > 0:
-            spk_label = f"{spk} ({conf:.0%} match)"
-        else:
-            spk_label = spk
+        ts          = f"{fmt_time(seg['start'])} – {fmt_time(seg['end'])}"
+        # Use speaker_display if available (set by voice recognition),
+        # otherwise fall back to the raw speaker label
+        spk_display = seg.get("speaker_display") or seg.get("speaker", "UNKNOWN")
 
         if seg.get("flag"):
             with st.expander(
-                f"⚠️ {spk_label}  [{ts}]  — {seg['text'][:80]}{'...' if len(seg['text'])>80 else ''}",
+                f"⚠️ {spk_display}  [{ts}]  — {seg['text'][:80]}{'...' if len(seg['text'])>80 else ''}",
                 expanded=False,
             ):
                 st.markdown(
                     f"**Full text:** {seg['text']}\n\n"
+                    f"**Speaker:** {spk_display}  \n"
                     f"**Category:** {seg['category']}  \n"
                     f"**Keyword matched:** `{seg['matched_keyword']}`  \n"
-                    f"**Confidence:** {seg['confidence']:.0%}"
+                    f"**Threat confidence:** {seg['confidence']:.0%}"
                 )
                 if seg.get("context_window"):
                     st.markdown("**Context (preceding turns):**")
                     for ctx in seg["context_window"]:
-                        st.markdown(f"> *{ctx['speaker']}:* {ctx['text']}")
+                        ctx_display = ctx.get("speaker_display", ctx.get("speaker",""))
+                        st.markdown(f"> *{ctx_display}:* {ctx['text']}")
         else:
             st.markdown(
                 f'<div class="safe-segment">'
-                f'<span class="speaker-label">{spk_label}</span> '
+                f'<span class="speaker-label">{spk_display}</span> '
                 f'<span class="timestamp-label">[{ts}]</span><br/>'
                 f'{seg["text"]}'
                 f'</div>',
@@ -377,18 +373,32 @@ def page_analyze():
             from pipeline.transcribe import transcribe_plain
             segments = transcribe_plain(wav_path)
 
-        # Step 2b: Speaker recognition — match diarized speakers to enrolled names
-        update_status("🔎 Identifying speakers by voice...", 60)
+        # Step 2b: Voice recognition — match every speaker against enrolled profiles
+        update_status("🔎 Matching speakers against enrolled voice profiles...", 60)
         try:
             from pipeline.voice_recognition import identify_speakers, apply_speaker_names
             name_map = identify_speakers(segments, wav_path)
-            if name_map:
-                segments = apply_speaker_names(segments, name_map)
-                matched = {v[0] for v in name_map.values() if v[0] != "Unknown Speaker"}
-                if matched:
-                    st.info(f"🎙️ Recognized speakers: {', '.join(matched)}")
+            segments = apply_speaker_names(segments, name_map)
+
+            # Show recognition result in UI
+            matched = [v[0] for v in name_map.values() if v[2] == "matched"]
+            no_enrolled = any(v[2] == "no_enrolled_voices" for v in name_map.values())
+            if no_enrolled:
+                st.info("ℹ️ No voices enrolled yet — all speakers shown as 'Unknown Speaker'. "
+                        "Use **Enroll a Voice** to register speakers.")
+            elif matched:
+                st.success(f"🎙️ Recognized: {', '.join(set(matched))}")
+            else:
+                st.info("🎙️ No enrolled voices matched in this call.")
         except Exception as exc:
             st.warning(f"Speaker recognition skipped: {exc}")
+            # Apply default unknown labeling so segments still have display fields
+            for seg in segments:
+                seg["matched_name"]     = "Unknown Speaker"
+                seg["match_confidence"] = 0.0
+                seg["match_status"]     = "not_run"
+                seg["speaker_display"]  = seg.get("speaker", "UNKNOWN")
+                seg["speaker_original"] = seg.get("speaker", "UNKNOWN")
 
         update_status("🔍 Analyzing transcript for threats...", 70)
         with get_session() as session:
@@ -526,26 +536,38 @@ def page_past_calls():
             ts    = f"{fmt_time(seg.start_sec)} – {fmt_time(seg.end_sec)}"
             flgs  = flag_map.get(seg.id, [])
 
+            # Build display label from stored match data
+            if seg.matched_name and seg.match_status == "matched":
+                spk_display = f"{seg.matched_name} ({seg.match_confidence:.0%} match)"
+            elif seg.match_status == "no_enrolled_voices":
+                spk_display = "Unknown Speaker (no enrolled voices yet)"
+            elif seg.match_status == "no_match":
+                conf_str = f"{seg.match_confidence:.0%}" if seg.match_confidence else "0%"
+                spk_display = f"Unknown Speaker (no match, best: {conf_str})"
+            else:
+                spk_display = seg.speaker  # fallback to original diarized label
+
             if flgs:
-                fl = flgs[0]   # show the top flag
+                fl = flgs[0]
                 with st.expander(
-                    f"⚠️ {seg.speaker}  [{ts}]  — {seg.text[:80]}{'...' if len(seg.text)>80 else ''}",
+                    f"⚠️ {spk_display}  [{ts}]  — {seg.text[:80]}{'...' if len(seg.text)>80 else ''}",
                     expanded=False,
                 ):
                     st.markdown(
                         f"**Full text:** {seg.text}\n\n"
+                        f"**Speaker:** {spk_display}  \n"
                         f"**Category:** {fl.category}  \n"
                         f"**Keyword:** `{fl.matched_keyword}`  \n"
-                        f"**Confidence:** {fl.confidence:.0%}"
+                        f"**Threat confidence:** {fl.confidence:.0%}"
                     )
                     if fl.context_window:
                         st.markdown("**Context:**")
                         for ctx in fl.context_window:
-                            st.markdown(f"> *{ctx['speaker']}:* {ctx['text']}")
+                            st.markdown(f"> *{ctx.get('speaker','')}:* {ctx['text']}")
             else:
                 st.markdown(
                     f'<div class="safe-segment">'
-                    f'<span class="speaker-label">{seg.speaker}</span> '
+                    f'<span class="speaker-label">{spk_display}</span> '
                     f'<span class="timestamp-label">[{ts}]</span><br/>'
                     f'{seg.text}'
                     f'</div>',
