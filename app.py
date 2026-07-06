@@ -55,6 +55,36 @@ from db.database import (
     save_voice_profile, get_all_voice_profiles, delete_voice_profile,
 )
 
+# ── Cache heavy models so they load once and stay in memory across reruns ─────
+@st.cache_resource(show_spinner=False)
+def _get_whisperx_model():
+    import whisperx as _wx
+    import warnings; warnings.filterwarnings("ignore")
+    print("[app] Loading whisperx model (cached)...")
+    return _wx.load_model(
+        os.getenv("WHISPER_MODEL", "base"),
+        os.getenv("COMPUTE_DEVICE", "cpu"),
+        compute_type="float32",
+    )
+
+@st.cache_resource(show_spinner=False)
+def _get_diarize_model():
+    import warnings; warnings.filterwarnings("ignore")
+    from whisperx.diarize import DiarizationPipeline
+    token = os.getenv("HF_TOKEN", "")
+    if not token:
+        return None
+    try:
+        print("[app] Loading diarization model (cached)...")
+        return DiarizationPipeline(
+            model_name="pyannote/speaker-diarization-3.1",
+            token=token,
+            device=os.getenv("COMPUTE_DEVICE", "cpu"),
+        )
+    except Exception as e:
+        print(f"[app] Diarization model load failed: {e}")
+        return None
+
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="CallGuard",
@@ -296,19 +326,64 @@ def page_analyze():
         except Exception:
             duration_sec = 0.0
 
-        # Step 2: Transcribe
+        # Step 2: Transcribe using cached models
         if use_diarization:
-            update_status("🎙️ Transcribing + diarizing (this may take a minute)...", 30)
+            update_status("🎙️ Transcribing + diarizing...", 30)
         else:
             update_status("🎙️ Transcribing with plain Whisper...", 30)
 
-        # Temporarily set env var so transcribe.py respects the checkbox
         os.environ["USE_DIARIZATION"] = "true" if use_diarization else "false"
 
-        from pipeline.transcribe import transcribe_with_diarization, transcribe_plain
         if use_diarization:
-            segments = transcribe_with_diarization(wav_path)
+            import whisperx
+            import warnings; warnings.filterwarnings("ignore")
+            from whisperx.diarize import assign_word_speakers
+
+            # Use Streamlit-cached models — only loads once per session
+            wx_model = _get_whisperx_model()
+            audio    = whisperx.load_audio(wav_path)
+
+            result   = wx_model.transcribe(audio, batch_size=16)
+            detected_language = result.get("language", "en")
+
+            # Align
+            try:
+                align_model, align_meta = whisperx.load_align_model(
+                    language_code=detected_language, device=os.getenv("COMPUTE_DEVICE","cpu")
+                )
+                result = whisperx.align(
+                    result["segments"], align_model, align_meta,
+                    audio, os.getenv("COMPUTE_DEVICE","cpu"),
+                    return_char_alignments=False,
+                )
+            except Exception as exc:
+                print(f"[app] Alignment skipped: {exc}")
+
+            # Diarize
+            try:
+                diarize_model = _get_diarize_model()
+                if diarize_model:
+                    diarize_segs = diarize_model(wav_path)
+                    result       = assign_word_speakers(diarize_segs, result)
+            except Exception as exc:
+                print(f"[app] Diarization skipped: {exc}")
+
+            # Build segments list
+            raw = result.get("segments",[]) if isinstance(result,dict) else result.segments
+            segments = []
+            for seg in raw:
+                if isinstance(seg, dict):
+                    segments.append({"speaker": seg.get("speaker","UNKNOWN"),
+                                     "text": seg.get("text","").strip(),
+                                     "start": round(seg.get("start",0.0),3),
+                                     "end":   round(seg.get("end",0.0),3)})
+                else:
+                    segments.append({"speaker": getattr(seg,"speaker","UNKNOWN") or "UNKNOWN",
+                                     "text": getattr(seg,"text","").strip(),
+                                     "start": round(getattr(seg,"start",0.0),3),
+                                     "end":   round(getattr(seg,"end",0.0),3)})
         else:
+            from pipeline.transcribe import transcribe_plain
             segments = transcribe_plain(wav_path)
 
         # Step 2b: Speaker recognition — match diarized speakers to enrolled names
@@ -390,8 +465,8 @@ def page_past_calls():
                 "File":       c.filename,
                 "Status":     c.status,
                 "Duration":   fmt_time(c.duration_sec) if c.duration_sec else "—",
-                "Flags":      summary.total_flags if summary else "—",
-                "Segments":   summary.total_segments if summary else "—",
+                "Flags":      str(summary.total_flags) if summary else "—",
+                "Segments":   str(summary.total_segments) if summary else "—",
                 "Analyzed":   c.completed_at.strftime("%Y-%m-%d %H:%M") if c.completed_at else "—",
             })
 

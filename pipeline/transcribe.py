@@ -46,8 +46,14 @@ load_dotenv()
 WHISPER_MODEL    = os.getenv("WHISPER_MODEL", "base")
 COMPUTE_DEVICE   = os.getenv("COMPUTE_DEVICE", "cpu")
 HF_TOKEN         = os.getenv("HF_TOKEN", "")
-# Set USE_DIARIZATION=false to run Step-1 plain-whisper mode
 USE_DIARIZATION  = os.getenv("USE_DIARIZATION", "true").lower() != "false"
+
+# ── Model cache — loaded once per process, reused across calls ────────────────
+# Loading whisperx + diarization models takes 20-40s the first time.
+# Caching them here means the second call is instant.
+_whisperx_model   = None
+_align_models     = {}   # keyed by language code
+_diarize_model    = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,38 +124,43 @@ def transcribe_with_diarization(audio_path: str) -> list[dict]:
             "whisperx is not installed. Run: pip install whisperx"
         )
 
-    # Suppress the noisy torchcodec warning on macOS — it's harmless here
-    # because we pass pre-loaded numpy audio directly to whisperx
     import warnings
     warnings.filterwarnings("ignore", message="torchcodec is not installed")
 
     # DiarizationPipeline moved to whisperx.diarize in whisperx >= 3.x
     from whisperx.diarize import DiarizationPipeline, assign_word_speakers
 
-    # ── Step 2a: Transcribe ───────────────────────────────────────────────────
-    print(f"[transcribe] Loading whisperx model: {WHISPER_MODEL} on {COMPUTE_DEVICE}")
-    model = whisperx.load_model(
-        WHISPER_MODEL,
-        COMPUTE_DEVICE,
-        compute_type="float32",   # use float16 for CUDA speedup
-    )
+    # ── Step 2a: Transcribe (use cached model if available) ───────────────────
+    global _whisperx_model, _align_models, _diarize_model
+
+    if _whisperx_model is None:
+        print(f"[transcribe] Loading whisperx model: {WHISPER_MODEL} on {COMPUTE_DEVICE}")
+        _whisperx_model = whisperx.load_model(
+            WHISPER_MODEL,
+            COMPUTE_DEVICE,
+            compute_type="float32",
+        )
+    else:
+        print(f"[transcribe] Using cached whisperx model")
 
     print(f"[transcribe] Loading audio: {audio_path}")
     audio = whisperx.load_audio(audio_path)
 
     print("[transcribe] Transcribing...")
-    result = model.transcribe(audio, batch_size=16)
+    result = _whisperx_model.transcribe(audio, batch_size=16)
 
     detected_language = result.get("language", "en")
     print(f"[transcribe] Detected language: {detected_language}")
 
-    # ── Step 2b: Align word timestamps ────────────────────────────────────────
+    # ── Step 2b: Align word timestamps (cache align model per language) ───────
     print("[transcribe] Aligning word timestamps...")
     try:
-        align_model, align_metadata = whisperx.load_align_model(
-            language_code=detected_language,
-            device=COMPUTE_DEVICE,
-        )
+        if detected_language not in _align_models:
+            _align_models[detected_language] = whisperx.load_align_model(
+                language_code=detected_language,
+                device=COMPUTE_DEVICE,
+            )
+        align_model, align_metadata = _align_models[detected_language]
         result = whisperx.align(
             result["segments"],
             align_model,
@@ -159,32 +170,30 @@ def transcribe_with_diarization(audio_path: str) -> list[dict]:
             return_char_alignments=False,
         )
     except Exception as exc:
-        # Alignment can fail for some languages — carry on without it
         print(f"[transcribe] Warning: alignment failed ({exc}), continuing without it.")
 
-    # ── Step 2c: Diarize speakers ─────────────────────────────────────────────
-    # Pass the WAV file path directly — pyannote reads it via soundfile,
-    # which avoids the torchcodec/ffmpeg dylib incompatibility on macOS
+    # ── Step 2c: Diarize speakers (cache diarization model) ───────────────────
     print("[transcribe] Running speaker diarization...")
     try:
-        diarize_model = DiarizationPipeline(
-            model_name="pyannote/speaker-diarization-3.1",
-            token=HF_TOKEN,
-            device=COMPUTE_DEVICE,
-        )
-        diarize_segments = diarize_model(audio_path)
+        if _diarize_model is None:
+            _diarize_model = DiarizationPipeline(
+                model_name="pyannote/speaker-diarization-3.1",
+                token=HF_TOKEN,
+                device=COMPUTE_DEVICE,
+            )
+        else:
+            print("[transcribe] Using cached diarization model")
+        diarize_segments = _diarize_model(audio_path)
 
-        # ── Step 2d: Assign speaker labels to transcript segments ─────────────
+        # ── Step 2d: Assign speaker labels ────────────────────────────────────
         print("[transcribe] Assigning speaker labels...")
         result = assign_word_speakers(diarize_segments, result)
 
     except Exception as exc:
-        # Diarization failed (e.g. gated model not yet approved on HuggingFace).
-        # Fall back gracefully — transcript still works, speakers labeled UNKNOWN.
         print(
             f"[transcribe] Warning: diarization failed ({type(exc).__name__}: {exc})\n"
-            f"[transcribe] Falling back to no-diarization mode. "
-            f"To enable speaker labels, accept the model license at:\n"
+            f"[transcribe] Falling back to no-diarization mode.\n"
+            f"  Accept licenses at:\n"
             f"  https://huggingface.co/pyannote/speaker-diarization-3.1\n"
             f"  https://huggingface.co/pyannote/segmentation-3.0"
         )

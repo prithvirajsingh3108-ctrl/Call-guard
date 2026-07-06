@@ -38,16 +38,23 @@ load_dotenv()
 # Cosine similarity threshold — above this score a speaker is considered matched
 RECOGNITION_THRESHOLD = float(os.getenv("RECOGNITION_THRESHOLD", "0.75"))
 
+# ── Cached encoder — loaded once per process ─────────────────────────────────
+_encoder = None
+
 
 def _get_encoder():
-    """Lazy-load the VoiceEncoder so it's only initialised when needed."""
+    """Lazy-load the VoiceEncoder once and cache it."""
+    global _encoder
+    if _encoder is not None:
+        return _encoder
     try:
         from resemblyzer import VoiceEncoder
     except ImportError:
         raise RuntimeError(
             "resemblyzer is not installed. Run: pip install resemblyzer"
         )
-    return VoiceEncoder()
+    _encoder = VoiceEncoder()
+    return _encoder
 
 
 def _load_wav_resemblyzer(wav_path: str) -> np.ndarray:
