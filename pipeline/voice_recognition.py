@@ -214,8 +214,18 @@ def identify_speakers(
         for seg in spk_segs:
             start_sample = int(seg["start"] * sample_rate)
             end_sample   = int(seg["end"]   * sample_rate)
-            if end_sample > start_sample and end_sample <= len(wav_full):
+
+            # Clamp to actual audio length — whisperx sometimes reports
+            # segment end times slightly beyond the audio duration.
+            # Rejecting these would discard valid speech, causing 0% match.
+            end_sample   = min(end_sample, len(wav_full))
+            start_sample = min(start_sample, len(wav_full))
+
+            if end_sample > start_sample:
                 slices.append(wav_full[start_sample:end_sample])
+            else:
+                print(f"[voice_recognition]   Skipping zero-length slice "
+                      f"(start={seg['start']:.2f}s end={seg['end']:.2f}s)")
 
         if not slices:
             print(f"[voice_recognition]   No valid audio slices — marking as Unknown Speaker")

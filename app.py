@@ -339,8 +339,52 @@ def page_analyze():
             wx_model = _get_whisperx_model()
             audio    = whisperx.load_audio(wav_path)
 
-            result   = wx_model.transcribe(audio, batch_size=16)
-            detected_language = result.get("language", "en")
+            # ── Explicit language detection with confidence logging ────────────
+            # Do NOT rely on auto-detect inside transcribe() — it's unreliable
+            # for short clips (<30s) and misdetects Hindi/Urdu as noise.
+            forced_lang = os.getenv("WHISPER_LANGUAGE", "").strip() or None
+            if forced_lang:
+                detected_language = forced_lang
+                lang_confidence   = 1.0
+                print(f"[transcribe] Language forced via WHISPER_LANGUAGE env: '{detected_language}'")
+            else:
+                # Use faster-whisper's detect_language for confidence score
+                detect_audio = audio[:30 * 16000] if len(audio) > 30 * 16000 else audio
+                try:
+                    lang_code, confidence, _ = wx_model.model.detect_language(detect_audio)
+                    detected_language = lang_code
+                    lang_confidence   = confidence
+                    # If confidence is low on short clip, retry on full audio
+                    if lang_confidence < 0.6 and len(audio) > 30 * 16000:
+                        lang_code2, conf2, _ = wx_model.model.detect_language(audio)
+                        detected_language = lang_code2
+                        lang_confidence   = conf2
+                        print(f"[transcribe] Low confidence on 30s clip — retried on full audio")
+                except Exception as exc:
+                    # Fallback: let whisperx detect from transcription
+                    print(f"[transcribe] detect_language API failed ({exc}), using transcribe fallback")
+                    tmp_result        = wx_model.transcribe(detect_audio, batch_size=4)
+                    detected_language = tmp_result.get("language", "en")
+                    lang_confidence   = 0.0
+
+            print(f"[transcribe] ── Language Detection ──────────────────────────")
+            print(f"[transcribe]   Detected language : {detected_language}")
+            print(f"[transcribe]   Confidence        : {lang_confidence:.2%}")
+            print(f"[transcribe]   Translation       : NO (task=transcribe — output in source language)")
+            print(f"[transcribe] ────────────────────────────────────────────────")
+
+            # Transcribe in source language — task="transcribe" ensures output
+            # stays in the original language (NOT translated to English).
+            result = wx_model.transcribe(
+                audio,
+                batch_size=16,
+                language=detected_language,   # explicit — no auto-detect
+                task="transcribe",            # "transcribe" = keep original language
+                                              # "translate"  = force English output
+            )
+            # Confirm language from result
+            result_language = result.get("language", detected_language)
+            print(f"[transcribe] Result language from model: {result_language}")
 
             # NOTE: Alignment step intentionally skipped —
             # it downloads a 3-4GB language model per language and is not

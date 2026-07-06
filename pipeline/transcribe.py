@@ -79,7 +79,33 @@ def transcribe_plain(audio_path: str) -> list[dict]:
     model = whisper.load_model(WHISPER_MODEL, device=COMPUTE_DEVICE)
     print(f"[transcribe] Transcribing: {audio_path}")
 
-    result = model.transcribe(audio_path, verbose=False)
+    # Detect language explicitly before transcribing
+    forced_lang = os.getenv("WHISPER_LANGUAGE", "").strip() or None
+    if forced_lang:
+        detected_language = forced_lang
+        lang_confidence   = 1.0
+        print(f"[transcribe] Language forced: '{detected_language}'")
+    else:
+        import torch
+        audio_for_detect = whisper.load_audio(audio_path)
+        audio_for_detect = whisper.pad_or_trim(audio_for_detect)
+        mel = whisper.log_mel_spectrogram(audio_for_detect).to(model.device)
+        _, lang_probs     = model.detect_language(mel)
+        detected_language = max(lang_probs, key=lang_probs.get)
+        lang_confidence   = lang_probs[detected_language]
+
+    print(f"[transcribe] ── Language Detection ──────────────────────────")
+    print(f"[transcribe]   Detected language : {detected_language}")
+    print(f"[transcribe]   Confidence        : {lang_confidence:.2%}")
+    print(f"[transcribe]   Translation       : NO (task=transcribe)")
+    print(f"[transcribe] ────────────────────────────────────────────────")
+
+    result = model.transcribe(
+        audio_path,
+        language=detected_language,
+        task="transcribe",
+        verbose=False,
+    )
 
     segments = []
     for seg in result.get("segments", []):
@@ -147,10 +173,41 @@ def transcribe_with_diarization(audio_path: str) -> list[dict]:
     audio = whisperx.load_audio(audio_path)
 
     print("[transcribe] Transcribing...")
-    result = _whisperx_model.transcribe(audio, batch_size=16)
+    # Detect language explicitly with confidence — never rely on auto-detect
+    forced_lang = os.getenv("WHISPER_LANGUAGE", "").strip() or None
+    if forced_lang:
+        detected_language = forced_lang
+        lang_confidence   = 1.0
+        print(f"[transcribe] Language forced via env: '{detected_language}'")
+    else:
+        try:
+            detect_audio      = audio[:30 * 16000] if len(audio) > 30 * 16000 else audio
+            # Use faster-whisper's detect_language which returns (code, confidence, probs)
+            lang_code, lang_confidence, _ = _whisperx_model.model.detect_language(detect_audio)
+            detected_language = lang_code
+            if lang_confidence < 0.6 and len(audio) > 30 * 16000:
+                lang_code2, lang_confidence2, _ = _whisperx_model.model.detect_language(audio)
+                detected_language = lang_code2
+                lang_confidence   = lang_confidence2
+                print(f"[transcribe] Low confidence on 30s — retried on full audio")
+        except Exception as exc:
+            print(f"[transcribe] detect_language failed ({exc}), using transcribe fallback")
+            tmp = _whisperx_model.transcribe(audio[:30*16000] if len(audio)>30*16000 else audio, batch_size=4)
+            detected_language = tmp.get("language", "en")
+            lang_confidence   = 0.0
 
-    detected_language = result.get("language", "en")
-    print(f"[transcribe] Detected language: {detected_language}")
+    print(f"[transcribe] ── Language Detection ──────────────────────────")
+    print(f"[transcribe]   Detected language : {detected_language}")
+    print(f"[transcribe]   Confidence        : {lang_confidence:.2%}")
+    print(f"[transcribe]   Translation       : NO (task=transcribe)")
+    print(f"[transcribe] ────────────────────────────────────────────────")
+
+    result = _whisperx_model.transcribe(
+        audio,
+        batch_size=16,
+        language=detected_language,
+        task="transcribe",
+    )
 
     # ── Step 2b: Align word timestamps — SKIPPED ─────────────────────────────
     # Alignment downloads a 3-4GB language-specific model and is not needed
