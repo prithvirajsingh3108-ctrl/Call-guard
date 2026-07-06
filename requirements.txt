@@ -1,0 +1,31 @@
+# CallGuard - Cloud deployment requirements
+# Streamlit Cloud installs these automatically
+
+# Core audio
+pydub==0.25.1
+ffmpeg-python==0.2.0
+
+# Speech-to-text
+openai-whisper==20231117
+whisperx==3.1.1
+
+# Diarization
+pyannote.audio==3.1.0
+
+# Dashboard
+streamlit==1.35.0
+plotly==5.22.0
+
+# Database
+sqlalchemy==2.0.30
+
+# Fuzzy matching
+rapidfuzz==3.9.0
+
+# Config
+python-dotenv==1.0.1
+
+# Utilities
+pyyaml==6.0.1
+numpy==1.26.4
+pandas==2.2.2
