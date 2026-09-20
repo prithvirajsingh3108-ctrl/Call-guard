@@ -83,42 +83,42 @@ All migrations run automatically via `ALTER TABLE … ADD COLUMN` — **existing
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                        Streamlit Dashboard                          │
+│                        Streamlit Dashboard                         │
 │  Analyze Call · Past Calls · Keyword Library · Live Monitor        │
-│  Enroll Voice · Manage Voices                                       │
+│  Enroll Voice · Manage Voices                                      │
 │  ─ Password gate · Diagnostics toggle · Confirm/False-alarm btns   │
 └────────────────────────┬───────────────────────────────────────────┘
                          │
                          ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│                         Pipeline Layer                              │
-│                                                                     │
-│  preprocess_audio.py   pydub + ffmpeg                               │
+│                         Pipeline Layer                             │
+│                                                                    │
+│  preprocess_audio.py   pydub + ffmpeg                              │
 │    loudnorm (EBU R128) · high-pass 80Hz · silence trim · upsample  │
-│         ↓                                                           │
+│         ↓                                                          │
 │  transcribe.py         whisperx / faster-whisper                   │
 │    detect_language() · task="transcribe" · pyannote diarize 3.1    │
-│         ↓                                                           │
+│         ↓                                                          │
 │  normalize.py          NFKC · Urdu glyphs · Devanagari nukta       │
-│    repeat-collapse · Roman variant map · cross-script overlay       │
-│         ↓                                                           │
-│  detector.py  — 4-layer fusion                                      │
-│    Layer 1  rapidfuzz  WRatio + partial + token_set  sliding win    │
-│    Layer 2  semantic   sentence-transformers cosine similarity      │
-│    Layer 3  context    benign dampening + speaker escalation        │
-│    Layer 4  LLM judge  ollama / anthropic (off by default)          │
-│         ↓                                                           │
-│  scoring.py            risk_score = 0.7×top + 0.3×second  (0–100) │
-│         ↓                                                           │
-│  alerts.py             cooldown · telegram · email · twilio         │
-│                                                                     │
-│  live.py               sounddevice capture · faster-whisper tiny    │
-│                        warning/emergency escalation                 │
+│    repeat-collapse · Roman variant map · cross-script overlay      │
+│         ↓                                                          │
+│  detector.py  — 4-layer fusion                                     │
+│    Layer 1  rapidfuzz  WRatio + partial + token_set  sliding win   │
+│    Layer 2  semantic   sentence-transformers cosine similarity     │
+│    Layer 3  context    benign dampening + speaker escalation       │
+│    Layer 4  LLM judge  ollama / anthropic (off by default)         │
+│         ↓                                                          │
+│  scoring.py            risk_score = 0.7×top + 0.3×second  (0–100)  │
+│         ↓                                                          │
+│  alerts.py             cooldown · telegram · email · twilio        │
+│                                                                    │
+│  live.py               sounddevice capture · faster-whisper tiny   │
+│                        warning/emergency escalation                │
 └────────────────────────┬───────────────────────────────────────────┘
                          │
                          ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│                       SQLite Database                               │
+│                       SQLite Database                              │
 │  calls · segments (ASR diagnostics) · flags (stage scores)         │
 │  call_summaries (risk_score) · voice_profiles · alerts             │
 └────────────────────────────────────────────────────────────────────┘
