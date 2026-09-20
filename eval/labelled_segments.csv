@@ -1,0 +1,93 @@
+text,language,label,category
+I will kill you if you say a word,en,1,threat
+I'm going to end your life,en,1,threat
+You are dead,en,1,threat
+I'll shoot you in the head,en,1,threat
+I'll stab you,en,1,threat
+Make you pay for this,en,1,threat
+Gonna kill you tonight,en,1,threat
+I'll destroy you completely,en,1,threat
+You'll regret crossing me,en,1,threat
+I'll finish you off for good,en,1,threat
+You are worthless and pathetic,en,1,abuse
+Nobody loves you and nobody ever will,en,1,abuse
+Shut up you absolute idiot,en,1,abuse
+I hate everything about you,en,1,abuse
+You disgust me deeply,en,1,abuse
+You're a piece of trash,en,1,abuse
+Get out of my sight,en,1,abuse
+I'll ruin your reputation,en,1,abuse
+You deserve nothing in life,en,1,abuse
+We need to get rid of him permanently,en,1,harm_planning
+Nobody will ever find out what happened,en,1,harm_planning
+Make it look like an accident,en,1,harm_planning
+Let's make him disappear,en,1,harm_planning
+Cover all the evidence now,en,1,harm_planning
+Clean up this mess before anyone sees,en,1,harm_planning
+He needs to go for good,en,1,harm_planning
+Blow up the building tonight,en,1,disaster
+Plant a bomb at the entrance,en,1,disaster
+Set the place on fire,en,1,disaster
+Release poison into the water supply,en,1,disaster
+Detonate the explosive device,en,1,disaster
+मैं तुम्हें मार दूंगा,hi,1,threat
+तुम्हें जान से मार दूंगा,hi,1,threat
+मैं तुम्हें गोली मार दूंगा,hi,1,threat
+तुम्हें खत्म कर दूंगा,hi,1,threat
+तुम मरोगे आज,hi,1,threat
+मैं तुम्हें बर्बाद कर दूंगा,hi,1,threat
+तुम्हें चाकू मारूंगा,hi,1,threat
+तुम बेकार हो और कुछ नहीं,hi,1,abuse
+मुझे तुमसे नफरत है,hi,1,abuse
+तुम निकम्मे हो बिल्कुल,hi,1,abuse
+उसे रास्ते से हटाना होगा,hi,1,harm_planning
+किसी को पता नहीं चलेगा,hi,1,harm_planning
+सबूत मिटाने होंगे अभी,hi,1,harm_planning
+बम रखना है इमारत में,hi,1,disaster
+जगह को जला दो पूरी,hi,1,disaster
+maar dunga tujhe,hi_rom,1,threat
+jaan se maar dunga,hi_rom,1,threat
+mar dunga agar bataya,hi_rom,1,threat
+khatam kar dunga tujhe,hi_rom,1,threat
+goli maar dunga,hi_rom,1,threat
+barbad kar dunga tujhe,hi_rom,1,threat
+chaku marunga tujhe,hi_rom,1,threat
+tujhe dekh lunga baad mein,hi_rom,1,threat
+tum bekar ho bilkul,hi_rom,1,abuse
+mujhe tumse nafrat hai,hi_rom,1,abuse
+kamina band kar mooh apna,hi_rom,1,abuse
+raste se hatana hoga use,hi_rom,1,harm_planning
+koi nahi janega kuch bhi,hi_rom,1,harm_planning
+saboot mita do sab kuch,hi_rom,1,harm_planning
+bomb rakhna hai aaj raat,hi_rom,1,disaster
+blast karna hai kal,hi_rom,1,disaster
+zeher mila do paani mein,hi_rom,1,disaster
+تمہیں مار دوں گا,ur,1,threat
+جان سے مار دوں گا,ur,1,threat
+تمہیں قتل کروں گا,ur,1,threat
+اسے ختم کر دوں گا,ur,1,threat
+گولی مار دوں گا,ur,1,threat
+تم بیکار ہو بالکل,ur,1,abuse
+مجھے تم سے نفرت ہے,ur,1,abuse
+اسے راستے سے ہٹانا ہوگا,ur,1,harm_planning
+کسی کو پتہ نہیں چلے گا,ur,1,harm_planning
+بم رکھنا ہے عمارت میں,ur,1,disaster
+tumhe maar dunga,ur_rom,1,threat
+qatl karunga usse,ur_rom,1,threat
+jaan se maar doon ga,ur_rom,1,threat
+nahi chhodunga tumhe,ur_rom,1,threat
+killing it at work this week,en,0,
+I'll kill this presentation tomorrow,en,0,
+That meeting was absolutely brutal,en,0,
+We crushed it in the game yesterday,en,0,
+The project is dead on arrival,en,0,
+He totally destroyed the competition,en,0,
+I'm dying of laughter right now,en,0,
+She killed it on stage tonight,en,0,
+This deadline is going to kill me,en,0,
+Let's blow up our sales numbers,en,0,
+The bomb of a presentation blew everyone away,en,0,
+I could kill for a good cup of coffee,en,0,
+yaar kal match mein kya maar liya,hi_rom,0,
+bhai kal project mein killing it tha,hi_rom,0,
+cricket mein aaj sabko maar diya,hi_rom,0,

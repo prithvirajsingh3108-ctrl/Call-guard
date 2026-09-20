@@ -1,0 +1,152 @@
+{
+  "overall": {
+    "precision": 0.9863,
+    "recall": 0.9351,
+    "f1": 0.96,
+    "tp": 72,
+    "fp": 1,
+    "fn": 5,
+    "tn": 14
+  },
+  "by_category": {
+    "threat": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 34,
+      "fp": 0,
+      "fn": 0
+    },
+    "abuse": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 17,
+      "fp": 0,
+      "fn": 0
+    },
+    "harm_planning": {
+      "precision": 1.0,
+      "recall": 0.7333,
+      "f1": 0.8462,
+      "tp": 11,
+      "fp": 0,
+      "fn": 4
+    },
+    "disaster": {
+      "precision": 1.0,
+      "recall": 0.9091,
+      "f1": 0.9524,
+      "tp": 10,
+      "fp": 0,
+      "fn": 1
+    },
+    "none": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "tp": 0,
+      "fp": 1,
+      "fn": 0
+    }
+  },
+  "by_language": {
+    "en": {
+      "precision": 0.963,
+      "recall": 0.8387,
+      "f1": 0.8966,
+      "tp": 26,
+      "fp": 1,
+      "fn": 5
+    },
+    "hi": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 15,
+      "fp": 0,
+      "fn": 0
+    },
+    "hi_rom": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 17,
+      "fp": 0,
+      "fn": 0
+    },
+    "ur": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 10,
+      "fp": 0,
+      "fn": 0
+    },
+    "ur_rom": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 4,
+      "fp": 0,
+      "fn": 0
+    }
+  },
+  "false_negatives": [
+    {
+      "text": "Nobody will ever find out what happened",
+      "language": "en",
+      "expected_cat": "harm_planning",
+      "predicted_cat": "",
+      "confidence": 0.4821,
+      "keyword_score": 0.8571,
+      "semantic_score": 0.0
+    },
+    {
+      "text": "Let's make him disappear",
+      "language": "en",
+      "expected_cat": "harm_planning",
+      "predicted_cat": "",
+      "confidence": 0.4809,
+      "keyword_score": 0.855,
+      "semantic_score": 0.0
+    },
+    {
+      "text": "Cover all the evidence now",
+      "language": "en",
+      "expected_cat": "harm_planning",
+      "predicted_cat": "",
+      "confidence": 0.4809,
+      "keyword_score": 0.855,
+      "semantic_score": 0.0
+    },
+    {
+      "text": "Clean up this mess before anyone sees",
+      "language": "en",
+      "expected_cat": "harm_planning",
+      "predicted_cat": "",
+      "confidence": 0.4963,
+      "keyword_score": 0.8824,
+      "semantic_score": 0.0
+    },
+    {
+      "text": "Set the place on fire",
+      "language": "en",
+      "expected_cat": "disaster",
+      "predicted_cat": "",
+      "confidence": 0.495,
+      "keyword_score": 0.88,
+      "semantic_score": 0.0
+    }
+  ],
+  "false_positives": [
+    {
+      "text": "Let's blow up our sales numbers",
+      "language": "en",
+      "predicted_cat": "disaster",
+      "confidence": 0.5625
+    }
+  ],
+  "recall_target": 0.8,
+  "passed": true
+}
